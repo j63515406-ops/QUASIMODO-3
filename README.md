@@ -1,48 +1,61 @@
-# BingX QM Scanner Bot (Reparada & Mejorada)
+# BingX QM Scanner Bot — Versión reparada
 
-Bot que escanea futuros USDT-M de BingX, detecta patrones QM + breakouts con volumen, envía señales a Telegram y opcionalmente opera.
+## Problema principal que tenías
 
-## Cambios en esta versión reparada
+```
+ccxt.base.errors.AuthenticationError: bingx {"code":100413,"msg":"Incorrect apiKey..."}
+```
 
-- Validación de API keys al arrancar (mensaje claro si fallan)
-- Mejor manejo de `AuthenticationError`
-- Logging más claro
-- Mayor robustez en `place_trade` (compatible con diferentes versiones de ccxt/BingX)
-- Tabla de configuración validada
-- Mensajes de error más útiles en Telegram
+**Causa:** La API Key o el Secret de BingX están incorrectos / vacíos / sin permisos de Futures.
 
-## Despliegue en Railway
+## Cómo arreglar la API Key (OBLIGATORIO)
 
-1. Sube todos los archivos a un repositorio de GitHub.
-2. En Railway: **New Project → Deploy from GitHub repo**.
-3. En **Variables** pega las de `.env.example` con tus valores reales.
-4. Start Command: `python main.py` (o deja el Procfile).
-5. Empieza siempre con `TRADE_MODE=signals`.
+1. Entra en → https://bingx.com/en/account/api
+2. **Borra** la key antigua si es posible
+3. Crea una **nueva API Key**
+4. Activa permisos de **Futures / Swap / Trade**
+5. **NO actives** restricción de IP (Railway usa IPs dinámicas)
+6. Copia `API Key` y `Secret Key` **sin espacios**
+7. En Railway → Variables:
+   - `BINGX_API_KEY` = tu key
+   - `BINGX_SECRET` = tu secret
+8. Haz **Redeploy**
 
-## Variables importantes
+## Mejoras de esta versión
 
-| Variable | Descripción |
-|----------|-----------|
-| `BINGX_API_KEY` | API Key de BingX (Futures) |
-| `BINGX_SECRET` | Secret Key |
-| `TELEGRAM_TOKEN` | Token del bot de Telegram |
-| `TELEGRAM_CHAT_ID` | Tu chat id |
-| `TRADE_MODE` | `signals` / `dry` / `live` |
+- Modo `signals` funciona **sin** API keys (solo datos públicos)
+- Mensajes de error mucho más claros
+- No se cae silenciosamente
+- Mejor cálculo de cantidad y manejo de órdenes
+- Validación de configuración al arrancar
+- Logging más limpio
 
-## Cómo crear la API Key de BingX correctamente
+## Variables de entorno recomendadas
 
-1. Ve a: https://bingx.com/en/account/api
-2. Crea una nueva API Key
-3. Activa permisos de **Futures / Swap**
-4. **No actives restricción de IP** (Railway usa IPs dinámicas)
-5. Copia Key y Secret **sin espacios**
-6. Pégalas en Railway Variables
+```
+TRADE_MODE=signals
+TIMEFRAME=15m
+SCAN_INTERVAL=300
+TOP_N=60
+MIN_SCORE=70
+COOLDOWN_MIN=120
+RISK_USDT=10
+LEVERAGE=3
+MAX_OPEN=3
+DAILY_LOSS_LIMIT=20
+SL_ATR=1.5
+TP_RR=2.0
+```
 
 ## Modos
 
-- `signals` → solo envía avisos a Telegram
-- `dry` → simula operaciones
-- `live` → opera de verdad
+| Modo       | Qué hace                          | ¿Necesita API Key? |
+|------------|-----------------------------------|--------------------|
+| `signals`  | Solo envía señales a Telegram     | No (recomendado)   |
+| `dry`      | Simula operaciones                | Sí                 |
+| `live`     | Opera de verdad                   | Sí                 |
+
+**Empieza siempre con `TRADE_MODE=signals`** hasta que veas señales correctas.
 
 ## Aviso
 

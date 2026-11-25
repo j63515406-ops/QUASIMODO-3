@@ -11,7 +11,7 @@ from scanner import scan
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger("main")
 
@@ -25,7 +25,7 @@ def fmt(sig):
         f"Entrada: {sig['entry']:.6g}\n"
         f"SL: {sig['sl']:.6g}\n"
         f"TP: {sig['tp']:.6g}\n"
-        f"Volumen x{sig['vol_ratio']:.1f} · Compresión {sig['compression']:.2f}"
+        f"Vol x{sig['vol_ratio']:.1f} · Compresión {sig['compression']:.2f}"
     )
 
 
@@ -33,36 +33,41 @@ def can_trade(ex, sig, day_start_bal):
     if day_start_bal is not None:
         bal = ex.balance_usdt()
         if day_start_bal - bal >= config.DAILY_LOSS_LIMIT:
-            send("⛔ Límite de pérdida diaria alcanzado. No se abren más operaciones hoy.")
+            send("⛔ Límite de pérdida diaria alcanzado.")
             return False
+
     positions = ex.open_positions()
     if len(positions) >= config.MAX_OPEN:
-        log.info("Máximo de posiciones abiertas alcanzado (%d)", config.MAX_OPEN)
+        log.info("Máximo de posiciones abiertas (%d)", config.MAX_OPEN)
         return False
+
     if any(p.get("symbol") == sig["symbol"] for p in positions):
         return False
+
     return True
 
 
 def main():
-    # Validación de configuración
+    # ── Validación ──────────────────────────────────────────
     errors = config.validate()
     if errors:
         for e in errors:
             log.error(e)
-            send(f"❌ Config error: {e}")
-        log.error("Bot detenido por errores de configuración.")
-        time.sleep(60)
+            send(f"❌ Config: {e}")
+        # No salimos del todo: dormimos y Railway reiniciará
+        log.error("Esperando 90s antes de reintentar...")
+        time.sleep(90)
         return
 
+    # ── Conexión ────────────────────────────────────────────
     try:
         ex = BingX()
         ex.load()
     except Exception as e:
-        msg = f"❌ No se pudo conectar a BingX: {e}"
+        msg = f"❌ No se pudo conectar a BingX:\n{e}"
         log.error(msg)
         send(msg)
-        # Esperar y reintentar en el siguiente ciclo de Railway
+        log.error("Esperando 120s...")
         time.sleep(120)
         return
 
@@ -72,6 +77,7 @@ def main():
     day = None
     day_start_bal = None
 
+    # ── Loop principal ──────────────────────────────────────
     while True:
         try:
             now = time.time()
@@ -80,33 +86,37 @@ def main():
             if config.TRADE_MODE == "live" and day != today:
                 day = today
                 day_start_bal = ex.balance_usdt()
-                log.info("Nuevo día. Balance inicial: %.2f USDT", day_start_bal or 0)
+                log.info("Nuevo día · balance inicial: %.2f USDT", day_start_bal or 0)
 
             signals = scan(ex)
-            log.info("Señales encontradas: %d", len(signals))
+            log.info("Señales válidas: %d", len(signals))
 
             for sig in signals:
                 sym = sig["symbol"]
+
+                # Cooldown
                 if now - cooldown.get(sym, 0) < config.COOLDOWN_MIN * 60:
                     continue
                 cooldown[sym] = now
 
+                # Aviso siempre
                 send(fmt(sig))
 
                 if config.TRADE_MODE == "dry":
-                    send(f"🧪 DRY: se habría abierto {sym} {sig['side']}")
+                    send(f"🧪 DRY → se habría abierto {sym} {sig['side']}")
+
                 elif config.TRADE_MODE == "live":
                     if can_trade(ex, sig, day_start_bal):
                         try:
                             ex.place_trade(sig)
                             send(f"✅ Orden ejecutada: {sym} {sig['side']}")
                         except Exception as e:
-                            log.exception("Error al colocar orden %s", sym)
-                            send(f"⚠️ Error al abrir {sym}: {e}")
+                            log.exception("Error abriendo %s", sym)
+                            send(f"⚠️ Error al abrir {sym}:\n{e}")
 
         except Exception as e:
-            log.exception("Error en ciclo principal: %s", e)
-            send(f"⚠️ Error en el bot: {e}")
+            log.exception("Error en ciclo: %s", e)
+            send(f"⚠️ Error en el bot:\n{e}")
 
         time.sleep(config.SCAN_INTERVAL)
 

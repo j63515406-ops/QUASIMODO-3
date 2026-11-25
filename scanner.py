@@ -22,22 +22,25 @@ def _indicators(df):
 
 def analyze(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["ts", "open", "high", "low", "close", "volume"])
-    df = df.iloc[:-1]                       # solo velas cerradas
+    df = df.iloc[:-1]  # solo velas cerradas
     if len(df) < 60:
         return None
-    df = _indicators(df)
 
+    df = _indicators(df)
     last = df.iloc[-1]
     atr = float(last.atr)
+
     if np.isnan(atr) or atr <= 0:
         return None
 
     atr_base = float(df.atr.iloc[-50:].mean())
     compression = atr / atr_base if atr_base > 0 else 1.0
-    vol_ratio = float(df.volume.iloc[-3:].mean() / max(df.volume.iloc[-23:-3].mean(), 1e-9))
+    vol_ratio = float(
+        df.volume.iloc[-3:].mean() / max(df.volume.iloc[-23:-3].mean(), 1e-9)
+    )
     prev_high = float(df.high.iloc[-21:-1].max())
     prev_low = float(df.low.iloc[-21:-1].min())
-    breakout = 1 if last.close > prev_high else -1 if last.close < prev_low else 0
+    breakout = 1 if last.close > prev_high else (-1 if last.close < prev_low else 0)
     trend = 1 if last.ema9 > last.ema21 else -1
 
     qm = detect_qm(df.high.values, df.low.values, df.close.values, atr)
@@ -51,16 +54,21 @@ def analyze(symbol, ohlcv):
 
     is_long = direction == "LONG"
     score = 0
-    if vol_ratio >= 2:
+
+    if vol_ratio >= 2.0:
         score += 25
     elif vol_ratio >= 1.5:
         score += 15
+
     if compression < 0.8:
         score += 15
+
     if breakout and ((breakout == 1) == is_long):
         score += 20
+
     if qm:
         score += 30
+
     if (trend == 1) == is_long:
         score += 10
 
@@ -85,8 +93,9 @@ def analyze(symbol, ohlcv):
 
 def scan(ex):
     symbols = ex.top_symbols(config.TOP_N)
-    log.info("Escaneando %d pares", len(symbols))
+    log.info("Escaneando %d pares...", len(symbols))
     results = []
+
     for sym in symbols:
         try:
             ohlcv = ex.fetch_ohlcv(sym, config.TIMEFRAME, 150)
@@ -94,5 +103,6 @@ def scan(ex):
             if sig and sig["score"] >= config.MIN_SCORE:
                 results.append(sig)
         except Exception as e:
-            log.warning("Error en %s: %s", sym, e)
+            log.warning("%s → %s", sym, e)
+
     return sorted(results, key=lambda s: s["score"], reverse=True)
