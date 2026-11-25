@@ -55,7 +55,7 @@ def analyze(symbol, ohlcv):
         score += 25
     elif vol_ratio >= 1.5:
         score += 15
-    if compression < 0.8:           # volatilidad comprimida antes del movimiento
+    if compression < 0.8:
         score += 15
     if breakout and ((breakout == 1) == is_long):
         score += 20

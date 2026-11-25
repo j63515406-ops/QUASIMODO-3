@@ -1,19 +1,24 @@
 import datetime as dt
 import logging
 import time
+import sys
 
 import config
 from exchange import BingX
 from notifier import send
 from scanner import scan
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 log = logging.getLogger("main")
 
 
 def fmt(sig):
     head = "🟢 LONG" if sig["side"] == "LONG" else "🔴 SHORT"
-    qm = " · QM" if sig["qm"] else ""
+    qm = " · QM" if sig.get("qm") else ""
     return (
         f"{head} {sig['symbol']} ({config.TIMEFRAME}){qm}\n"
         f"Score: {sig['score']}/100\n"
@@ -32,6 +37,7 @@ def can_trade(ex, sig, day_start_bal):
             return False
     positions = ex.open_positions()
     if len(positions) >= config.MAX_OPEN:
+        log.info("Máximo de posiciones abiertas alcanzado (%d)", config.MAX_OPEN)
         return False
     if any(p.get("symbol") == sig["symbol"] for p in positions):
         return False
@@ -39,8 +45,27 @@ def can_trade(ex, sig, day_start_bal):
 
 
 def main():
-    ex = BingX()
-    ex.load()
+    # Validación de configuración
+    errors = config.validate()
+    if errors:
+        for e in errors:
+            log.error(e)
+            send(f"❌ Config error: {e}")
+        log.error("Bot detenido por errores de configuración.")
+        time.sleep(60)
+        return
+
+    try:
+        ex = BingX()
+        ex.load()
+    except Exception as e:
+        msg = f"❌ No se pudo conectar a BingX: {e}"
+        log.error(msg)
+        send(msg)
+        # Esperar y reintentar en el siguiente ciclo de Railway
+        time.sleep(120)
+        return
+
     send(f"🤖 Bot iniciado · modo={config.TRADE_MODE} · TF={config.TIMEFRAME}")
 
     cooldown = {}
@@ -51,25 +76,36 @@ def main():
         try:
             now = time.time()
             today = dt.date.today()
+
             if config.TRADE_MODE == "live" and day != today:
                 day = today
                 day_start_bal = ex.balance_usdt()
+                log.info("Nuevo día. Balance inicial: %.2f USDT", day_start_bal or 0)
 
-            for sig in scan(ex):
+            signals = scan(ex)
+            log.info("Señales encontradas: %d", len(signals))
+
+            for sig in signals:
                 sym = sig["symbol"]
                 if now - cooldown.get(sym, 0) < config.COOLDOWN_MIN * 60:
                     continue
                 cooldown[sym] = now
+
                 send(fmt(sig))
 
                 if config.TRADE_MODE == "dry":
                     send(f"🧪 DRY: se habría abierto {sym} {sig['side']}")
                 elif config.TRADE_MODE == "live":
                     if can_trade(ex, sig, day_start_bal):
-                        ex.place_trade(sig)
-                        send(f"✅ Orden ejecutada: {sym} {sig['side']}")
+                        try:
+                            ex.place_trade(sig)
+                            send(f"✅ Orden ejecutada: {sym} {sig['side']}")
+                        except Exception as e:
+                            log.exception("Error al colocar orden %s", sym)
+                            send(f"⚠️ Error al abrir {sym}: {e}")
+
         except Exception as e:
-            log.exception("Error en ciclo: %s", e)
+            log.exception("Error en ciclo principal: %s", e)
             send(f"⚠️ Error en el bot: {e}")
 
         time.sleep(config.SCAN_INTERVAL)

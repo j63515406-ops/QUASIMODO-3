@@ -14,10 +14,10 @@ def _int(name, default):
 
 
 # Credenciales (se cargan desde variables de entorno de Railway, nunca en el código)
-BINGX_API_KEY = os.getenv("BINGX_API_KEY", "")
-BINGX_SECRET = os.getenv("BINGX_SECRET", "")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+BINGX_API_KEY = os.getenv("BINGX_API_KEY", "").strip()
+BINGX_SECRET = os.getenv("BINGX_SECRET", "").strip()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
 # Modo de operación: signals (solo avisos) | dry (simula) | live (opera de verdad)
 TRADE_MODE = os.getenv("TRADE_MODE", "signals").strip().lower()
@@ -40,3 +40,14 @@ MAX_OPEN = _int("MAX_OPEN", 3)                    # posiciones abiertas simultá
 DAILY_LOSS_LIMIT = _float("DAILY_LOSS_LIMIT", 20) # pérdida diaria máxima en USDT
 SL_ATR = _float("SL_ATR", 1.5)                    # stop loss = X * ATR
 TP_RR = _float("TP_RR", 2.0)                      # take profit = X veces el riesgo
+
+# Validación básica al arrancar
+def validate():
+    errors = []
+    if not BINGX_API_KEY or not BINGX_SECRET:
+        errors.append("BINGX_API_KEY o BINGX_SECRET estáníos. Revisa las variables de entorno en Railway.")
+    if TRADE_MODE not in ("signals", "dry", "live"):
+        errors.append(f"TRADE_MODE inválido: {TRADE_MODE}. Usa signals / dry / live")
+    if TRADE_MODE == "live" and (not BINGX_API_KEY or not BINGX_SECRET):
+        errors.append("No se puede usar TRADE_MODE=live sin API keys válidas.")
+    return errors
